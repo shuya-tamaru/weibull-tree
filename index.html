@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>寿命の樹 — The Weibull Tree (TSL)</title>
+<style>
+  :root{--ink:#93A3AE;--dim:#56636E;--gold:#E8C15A}
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{height:100%;background:#05080F;overflow:hidden;
+    font-family:"Zen Kaku Gothic New","Hiragino Kaku Gothic ProN","Yu Gothic",sans-serif}
+  #stage{position:fixed;inset:0}
+  #stage canvas{display:block}
+  .serif{font-family:"Shippori Mincho","Hiragino Mincho ProN","Yu Mincho",serif}
+  header{position:fixed;top:26px;left:30px;color:var(--ink);pointer-events:none;z-index:5}
+  header .eyebrow{font-size:10px;letter-spacing:.42em;color:var(--dim);text-transform:uppercase}
+  header h1{font-size:24px;font-weight:500;letter-spacing:.32em;color:#C9D6D2;margin-top:9px}
+  header .sub{font-size:11px;letter-spacing:.12em;color:var(--dim);margin-top:9px;line-height:1.9}
+
+  .glass{background:rgba(8,13,24,.58);border:1px solid rgba(147,163,174,.13);
+    border-radius:14px;backdrop-filter:blur(10px);color:var(--ink)}
+
+  /* ===== 下部: コンパクトな再生ドック(中央・自動フェード) ===== */
+  .dock{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);z-index:6;
+    width:min(560px,calc(100vw - 60px));display:flex;align-items:center;gap:10px;
+    padding:8px 14px;opacity:.9;transition:opacity .7s ease, transform .7s ease}
+  .dock.idle{opacity:0;transform:translateX(-50%) translateY(14px);pointer-events:none}
+  .dock:hover{opacity:1}
+  .dock .ic{flex:none;width:30px;height:30px;padding:0;display:flex;align-items:center;
+    justify-content:center;font-size:12px;border-radius:8px}
+  .dock input[type=range]{flex:1;min-width:80px}
+  .dock .info{flex:none;display:flex;align-items:baseline;gap:6px;font-size:11px;
+    letter-spacing:.06em;color:var(--dim);white-space:nowrap;font-variant-numeric:tabular-nums}
+  .dock .info .yr{color:#E9EDE9;font-size:15px}
+  .dock .info .alive{color:var(--gold)}
+  .dock .info .u,.dock .info .sep{color:var(--dim);font-size:10px}
+
+  /* ===== 右: 操作盤(隠せる) ===== */
+  .side{position:fixed;right:24px;top:26px;bottom:74px;z-index:6;width:276px;
+    padding:16px 18px;overflow-y:auto;display:flex;flex-direction:column;gap:6px;
+    transition:opacity .5s ease, transform .5s ease}
+  .side.collapsed{opacity:0;transform:translateX(24px);pointer-events:none}
+  .side::-webkit-scrollbar{width:6px}
+  .side::-webkit-scrollbar-thumb{background:rgba(147,163,174,.2);border-radius:3px}
+  .side .head{display:flex;justify-content:space-between;align-items:center;margin-bottom:4px}
+  .side .head .lbl{font-size:10px;letter-spacing:.28em;text-transform:uppercase;color:var(--dim)}
+  .side .title{font-size:9px;letter-spacing:.28em;text-transform:uppercase;color:var(--dim);
+    margin:12px 0 4px;border-bottom:1px solid rgba(147,163,174,.10);padding-bottom:5px}
+
+  /* パネルを開くハンドル(隠れている間だけ) */
+  .handle{position:fixed;right:24px;top:26px;z-index:7;padding:7px 12px;font-size:11px;
+    letter-spacing:.10em;display:none}
+  .handle.show{display:block}
+
+  input[type=range]{width:100%;appearance:none;-webkit-appearance:none;height:2px;border-radius:2px;
+    background:rgba(147,163,174,.25);outline:none}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:14px;height:14px;border-radius:50%;
+    background:#E9EDE9;cursor:pointer;box-shadow:0 0 10px rgba(233,237,233,.45)}
+  input[type=range]:focus-visible::-webkit-slider-thumb{box-shadow:0 0 0 3px rgba(232,193,90,.55)}
+
+  button{background:transparent;border:1px solid rgba(147,163,174,.25);color:var(--ink);
+    border-radius:7px;padding:5px 12px;font-size:11px;letter-spacing:.06em;cursor:pointer;font-family:inherit}
+  button:hover{border-color:var(--gold);color:var(--gold)}
+  button:focus-visible{outline:2px solid var(--gold);outline-offset:2px}
+  button.on{border-color:var(--gold);color:var(--gold)}
+  .pal{padding:5px 9px;font-size:10px}
+  .x{border:none;font-size:15px;padding:2px 8px;color:var(--dim)}
+
+  .field{display:flex;align-items:center;gap:10px;margin:8px 0;font-size:10px;letter-spacing:.06em}
+  .field > span:first-child{color:var(--dim);min-width:66px}
+  .field input[type=range]{flex:1}
+  .field .val{color:#E9EDE9;min-width:40px;text-align:right;font-variant-numeric:tabular-nums}
+  .field input[type=number]{width:100%;background:rgba(147,163,174,.10);border:1px solid rgba(147,163,174,.22);
+    color:#E9EDE9;border-radius:6px;padding:5px 8px;font-size:11px;font-family:inherit;outline:none}
+  .field input[type=number]:focus-visible{border-color:var(--gold)}
+  .field input[type=color]{width:26px;height:24px;border:1px solid rgba(147,163,174,.3);
+    border-radius:6px;background:transparent;padding:1px;cursor:pointer;flex:none}
+  .rowbtns{display:flex;gap:7px;flex-wrap:wrap;margin:6px 0}
+  .colors{display:flex;align-items:center;gap:12px;margin:8px 0}
+  .colors label{display:flex;flex-direction:column;align-items:center;gap:3px;font-size:9px;
+    letter-spacing:.08em;color:var(--dim);cursor:pointer}
+  .colors input[type=color]{width:26px;height:26px;border:1px solid rgba(147,163,174,.3);
+    border-radius:6px;background:transparent;padding:1px;cursor:pointer}
+  .swatch{display:flex;gap:4px;margin-top:6px;height:16px}
+  .swatch i{flex:1;display:block;border-radius:4px}
+  .adv{display:none}
+  .adv.open{display:block}
+
+  @media (max-width:720px){
+    header h1{font-size:19px}
+    .side{top:auto;bottom:78px;right:12px;left:12px;width:auto;max-height:46vh}
+    .dock{width:calc(100vw - 24px)}
+  }
+</style>
+</head>
+<body>
+<div id="stage"></div>
+<header>
+  <div class="eyebrow">The Weibull Tree · TSL</div>
+  <h1 class="serif">寿命の樹</h1>
+  <!-- <div class="sub">果実のひとつが、ひとつの設備。<br>熟した色は、残された時間。</div> -->
+</header>
+
+<!-- 右パネルを開くハンドル(隠れている間) -->
+<button class="handle glass" id="handle">操作 ‹</button>
+
+<!-- 右: 操作盤 -->
+<aside class="side glass" id="side">
+  <div class="head">
+    <span class="lbl">操作盤</span>
+    <button class="x" id="closeSide" title="隠す">›</button>
+  </div>
+
+  <div class="title">表示</div>
+  <div class="field"><span>灯の大きさ</span><input type="range" id="szIn" min="0.4" max="2.6" step="0.05" value="0.4"><span class="val" id="szv">0.40</span></div>
+  <div class="field"><span>回転速度</span><input type="range" id="rotSpeedIn" min="0" max="0.6" step="0.005" value="0.05"><span class="val" id="rotSpeedv">0.05</span></div>
+  <div class="rowbtns"><button id="rot" class="on">⟳ 自動回転</button></div>
+
+  <div class="title">樹形</div>
+  <div class="field"><span>灯の数</span><input type="number" id="cntIn" value="24000" min="500" max="24000" step="500"></div>
+  <div class="field"><span>枝の密度</span><input type="range" id="depthIn" min="9" max="14" step="1" value="14"><span class="val" id="depthv">14</span></div>
+  <div class="field"><span>樹形 No.</span><input type="number" id="seedIn" value="56730" min="0" max="99999">
+    <button id="dice" title="新しい樹形">🎲</button></div>
+
+  <div class="title">おすすめ配色</div>
+  <div class="rowbtns">
+    <button class="pal" data-p="ember">黄昏</button>
+    <button class="pal" data-p="prism">極彩</button>
+    <button class="pal" data-p="neon">ネオン</button>
+    <button class="pal" data-p="galaxy">銀河</button>
+  </div>
+  <div class="title">和のパレット</div>
+  <div class="rowbtns">
+    <button class="pal" data-p="hanami">桜</button>
+    <button class="pal" data-p="shinryoku">新緑</button>
+    <button class="pal" data-p="sakura">夜桜</button>
+    <button class="pal" data-p="hotaru">蛍火</button>
+    <button class="pal" data-p="shigyo">紫暁</button>
+  </div>
+  <div class="colors">
+    <label>幹<input type="color" id="cTrunk" value="#FFFFFF"></label>
+    <label>枝先<input type="color" id="cTwig" value="#E6EDF1"></label>
+    <label>若い灯<input type="color" id="cYoung" value="#2FD8C4"></label>
+    <label>熟した灯<input type="color" id="cRipe" value="#B4E44E"></label>
+  </div>
+
+  <div class="rowbtns"><button id="advBtn" style="width:100%">詳細パラメータ ▾</button></div>
+  <div class="adv" id="adv">
+    <div class="title">Weibull — 劣化分布</div>
+    <div class="field"><span>形状 k</span><input type="range" id="pK" min="0.6" max="6" step="0.05" value="3.0"><span class="val" id="pKv">3.00</span></div>
+    <div class="field"><span>尺度 η年</span><input type="range" id="pEta" min="4" max="40" step="0.2" value="21.2"><span class="val" id="pEtav">21.2</span></div>
+    <div class="title">Timing — 落下と霧散</div>
+    <div class="field"><span>落下(年)</span><input type="range" id="pFall" min="0.3" max="6" step="0.05" value="1.6"><span class="val" id="pFallv">1.60</span></div>
+    <div class="field"><span>霧散(年)</span><input type="range" id="pMist" min="0.5" max="8" step="0.05" value="2.2"><span class="val" id="pMistv">2.20</span></div>
+    <div class="field"><span>霧の色</span><input type="color" id="cMist" value="#B4E44E"></div>
+    <div class="title">Palette — 落下の調和色</div>
+    <div class="field"><span>色相の広がり</span><input type="range" id="pHue" min="0" max="2.5" step="0.02" value="1.6"><span class="val" id="pHuev">1.60</span></div>
+    <div class="field"><span>明暗差</span><input type="range" id="pLit" min="0" max="2.5" step="0.02" value="1.3"><span class="val" id="pLitv">1.30</span></div>
+    <div class="field"><span>彩度</span><input type="range" id="pSat" min="-0.4" max="0.4" step="0.01" value="0.0"><span class="val" id="pSatv">0.00</span></div>
+    <div class="swatch" id="swatch"></div>
+  </div>
+</aside>
+
+<!-- 下: コンパクト再生ドック -->
+<div class="dock glass" id="dock">
+  <button id="play" class="ic" title="再生 / 一時停止 (Space)">▶</button>
+  <button id="replay" class="ic" title="はじめから">↺</button>
+  <input type="range" id="yrIn" min="0" max="40" step="0.05" value="0" aria-label="経過年数">
+  <div class="info">
+    <span class="yr" id="yrOut">0.0</span><span class="u">年</span>
+    <span class="sep">·</span>
+    <span class="alive"><span id="aliveOut">0</span></span><span class="u">/</span><span id="totalOut">0</span>
+  </div>
+</div>
+
+<script type="module" src="/src/main.js"></script>
+</body>
+</html>
