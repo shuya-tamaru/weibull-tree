@@ -44,9 +44,9 @@ function defaultColors() {
 // 森の各テンプレートは互いに色相の違う一式を持つ(=「色々」)。
 export function makePalette(rand) {
   const h0 = rand();
-  const ripe = new THREE.Color().setHSL(h0, 0.60 + rand() * 0.28, 0.52 + rand() * 0.12);
+  const ripe = new THREE.Color().setHSL(h0, 0.74 + rand() * 0.22, 0.54 + rand() * 0.10);
   const hy = (h0 + (rand() < 0.5 ? -1 : 1) * (0.08 + rand() * 0.20) + 1) % 1;
-  const young = new THREE.Color().setHSL(hy, 0.58 + rand() * 0.30, 0.60 + rand() * 0.12);
+  const young = new THREE.Color().setHSL(hy, 0.72 + rand() * 0.24, 0.60 + rand() * 0.11);
   const trunk = new THREE.Color().setHSL(h0, 0.14, 0.90 + rand() * 0.06);
   const twig = new THREE.Color().setHSL((h0 + 0.02) % 1, 0.36 + rand() * 0.14, 0.40 + rand() * 0.08);
   const mist = new THREE.Color().setHSL((h0 + 0.03) % 1, 0.48, 0.68);
@@ -69,7 +69,7 @@ export function createGlobalUniforms() {
     uTime: uniform(0),
     uYear: uniform(0),
     uFruitScale: uniform(0.5),
-    uFall: uniform(2.7),
+    uFallScale: uniform(1.0), // 落下時間の全体倍率(実落下時間 = テンプレ uFall × これ)
     uMist: uniform(14.65),
     uGroundGlow: uniform(2.0),
     uGroundSpread: uniform(7.5),
@@ -78,11 +78,12 @@ export function createGlobalUniforms() {
 
 // ============ 樹ごとに変わる uniform(配色・ワイブル k/η) ============
 // colors を渡さなければ「寿命の樹」の既定色。森ではテンプレートごとに makePalette で与える。
-export function createTemplateUniforms({ colors, k = 3.0, eta = 21.2 } = {}) {
+export function createTemplateUniforms({ colors, k = 3.0, eta = 21.2, fall = 2.7 } = {}) {
   const c = colors || defaultColors();
   return {
     uK: uniform(k),
     uEta: uniform(eta),
+    uFall: uniform(fall), // 落下にかかる年数(木ごとに異なる=落下速度のばらつき)
     uTrunkCol: uniform(c.trunk),
     uTwigCol: uniform(c.twig),
     uYoungCol: uniform(c.young),
@@ -134,6 +135,9 @@ export function createFruitMaterial(G, T, data) {
   const aSeed = instancedBufferAttribute(new THREE.InstancedBufferAttribute(fruitSeed, 2), 'vec2');
   const aPos = instancedBufferAttribute(new THREE.InstancedBufferAttribute(fruitPos, 3), 'vec3');
 
+  // 落下にかかる時間(年)。木ごとの uFall に全体倍率 uFallScale を掛ける。
+  const fallDur = T.uFall.mul(G.uFallScale);
+
   // 熟成に伴う on-tree の色(基調色由来)
   const ripenColor = Fn(([ripen]) => {
     const crimson = mix(T.uRipeCol, vec3(1.0, 0.32, 0.24), 0.65);
@@ -155,7 +159,7 @@ export function createFruitMaterial(G, T, data) {
     const sizeMul = float(0.84).toVar();
 
     If(G.uYear.greaterThanEqual(Tl), () => {
-      const s = G.uYear.sub(Tl).div(G.uFall);
+      const s = G.uYear.sub(Tl).div(fallDur);
       If(s.lessThan(1.0), () => {
         const e = s.mul(s);
         p.y.assign(mix(aPos.y, 0.15, e));
@@ -163,7 +167,7 @@ export function createFruitMaterial(G, T, data) {
         p.z.addAssign(cos(s.mul(5.0).add(aSeed.y.mul(20.0))).mul(0.25).mul(s));
         sizeMul.assign(0.50);
       }).Else(() => {
-        const mm = G.uYear.sub(Tl).sub(G.uFall).div(G.uMist);
+        const mm = G.uYear.sub(Tl).sub(fallDur).div(G.uMist);
         If(mm.lessThan(1.0), () => {
           mist.assign(mm);
           p.y.assign(float(0.15).add(mm.mul(1.6).mul(float(0.4).add(aSeed.y))));
@@ -196,14 +200,14 @@ export function createFruitMaterial(G, T, data) {
     const mist = float(0.0).toVar();
 
     If(G.uYear.greaterThanEqual(Tl), () => {
-      const s = G.uYear.sub(Tl).div(G.uFall);
+      const s = G.uYear.sub(Tl).div(fallDur);
       If(s.lessThan(1.0), () => {
         glow.assign(0.9);
         // 落下: 調和パレットの 1 色へ(果実ごとに seed で選択)
         const idx = int(mod(aSeed.x.mul(4.0), 4.0));
         col.assign(mix(col, T.uPal.element(idx), s.mul(0.75)));
       }).Else(() => {
-        const mm = G.uYear.sub(Tl).sub(G.uFall).div(G.uMist);
+        const mm = G.uYear.sub(Tl).sub(fallDur).div(G.uMist);
         If(mm.lessThan(1.0), () => {
           mist.assign(mm);
           glow.assign(mm.oneMinus().mul(0.7));
@@ -216,11 +220,12 @@ export function createFruitMaterial(G, T, data) {
       });
     });
 
-    // 点スプライトの柔らかいグロー(core + halo)
+    // 点スプライトのグロー: 芯を締めて光の玉感を残しつつ、外側のもわっとを抑える。
+    // core = 明るく引き締まった芯、halo = 小さめの後光(キリッと見せる)。
     const q = uv().sub(0.5);
     const d2 = length(q).mul(length(q));
-    const core = exp(d2.mul(-34.0));
-    const halo = exp(d2.mul(-6.5)).mul(0.45);
+    const core = exp(d2.mul(-62.0));
+    const halo = exp(d2.mul(-14.0)).mul(0.28);
     const a = core.add(halo).mul(glow).toVar();
     a.mulAssign(mix(float(1.0), exp(d2.mul(-3.0)).mul(0.8), mist));
     a.mulAssign(step(0.001, glow)); // 消灯した果実は描かない
@@ -265,6 +270,32 @@ export function createBranchGeometry(data) {
   g.setAttribute('position', new THREE.BufferAttribute(data.branchPositions, 3));
   g.setAttribute('aW', new THREE.BufferAttribute(data.branchW, 1));
   return g;
+}
+
+// ============ 森用: 太線ジオメトリ(LineSegmentsGeometry・テンプレごとに使い回す) ============
+// 枝を画面空間で太らせて「はっきり」見せる(index.html と同じ描画方式)。
+// per-segment の太さ用に instanceW を持たせ、幹→枝先の配色に使う。
+export function createBranchGeometry2(data) {
+  const geometry = new LineSegmentsGeometry();
+  geometry.setPositions(data.branchPositions);
+  const segmentW = new Float32Array(data.branchW.length / 2);
+  for (let i = 0; i < segmentW.length; i++) {
+    segmentW[i] = (data.branchW[i * 2] + data.branchW[i * 2 + 1]) * 0.5;
+  }
+  geometry.setAttribute('instanceW', new THREE.InstancedBufferAttribute(segmentW, 1));
+  return geometry;
+}
+
+// ============ 森用: 太線マテリアル(幹→枝先グラデ+呼吸・screen space 幅) ============
+export function createBranchMaterial2(G, T = G, width = 2.0) {
+  const material = new Line2NodeMaterial({
+    linewidth: width, transparent: true, depthWrite: false,
+  });
+  const w = attribute('instanceW', 'float');
+  const breathe = float(0.90).add(float(0.10).mul(sin(G.uTime.mul(0.45))));
+  material.colorNode = mix(T.uTrunkCol, T.uTwigCol, smoothstep(0.1, 0.9, w)).mul(breathe);
+  material.opacityNode = mix(float(0.95), float(0.52), smoothstep(0.1, 0.95, w));
+  return material;
 }
 
 // ============ 枝の太線 LineSegments(単体ページ用ラッパー) ============

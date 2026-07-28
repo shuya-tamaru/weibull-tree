@@ -1,8 +1,9 @@
 import * as THREE from 'three';
+import { LineSegments2 } from 'three/addons/lines/webgpu/LineSegments2.js';
 import { buildTreeData, mulberry32 } from './tree.js';
 import {
-  createTemplateUniforms, createFruitMaterial, createBranchMaterial,
-  createBranchGeometry, buildFruitMesh, makePalette,
+  createTemplateUniforms, createFruitMaterial, createBranchMaterial2,
+  createBranchGeometry2, buildFruitMesh, makePalette,
 } from './materials.js';
 
 // ============ 森用の小さな樹形(幹を低く・こんもり。建物のように各区画に建つ) ============
@@ -26,7 +27,7 @@ const SMALL_TREE = {
 // を持ち、無限ラティスのセルへ配置・使い回される。
 // per-instance データはマテリアルのノードに埋まっているので、同じ material を
 // 参照する InstancedMesh を position 違いで何本でも置ける(=1テンプレ=1本分の灯群)。
-export function buildTemplateLibrary(G, numTemplates = 16) {
+export function buildTemplateLibrary(G, numTemplates = 16, branchWidth = 2.0) {
   const templates = [];
   for (let t = 0; t < numTemplates; t++) {
     const rand = mulberry32(9000 + t * 131);
@@ -35,13 +36,14 @@ export function buildTemplateLibrary(G, numTemplates = 16) {
     const eta = 6 + rand() * 28;                      // 劣化尺度 η: 6..34 年
     const k = 1.3 + rand() * 3.2;                     // 形状 k: 1.3..4.5
     const depth = 9 + Math.floor(rand() * 3);         // 枝密度 9..11
+    const fall = 2.5 + rand() * 9;                    // 落下時間 2.5..11.5 年(木ごとに速度が違う)
     const data = buildTreeData(seed, count, { k, eta, depth, tree: SMALL_TREE });
     const colors = makePalette(rand);
-    const T = createTemplateUniforms({ colors, k, eta });
+    const T = createTemplateUniforms({ colors, k, eta, fall });
     templates.push({
       fruitMat: createFruitMaterial(G, T, data),
-      branchMat: createBranchMaterial(G, T),
-      branchGeo: createBranchGeometry(data),
+      branchMat: createBranchMaterial2(G, T, branchWidth),
+      branchGeo: createBranchGeometry2(data),
       N: data.N,
     });
   }
@@ -64,10 +66,11 @@ export function cellHash(i, j, numTemplates) {
 // 空きスロットが枯れることはない(evict 不要)。dispose はページ破棄時のみ。
 export class PoolManager {
   constructor(scene, templates, { spacing = 18, radius = 5, jitter = 0 } = {}) {
+    this.scene = scene;
     this.templates = templates;
     this.S = spacing;
     this.R = radius;
-    this.jitter = jitter * spacing;
+    this.jitter = jitter;   // セル辺長に対する割合(0..1)。絶対量は mount 時に S を掛ける。
     this.MAX_N = Math.max(...templates.map((t) => t.N));
     this.mounted = new Map();
     this.free = [];
@@ -80,7 +83,7 @@ export class PoolManager {
     for (let n = 0; n < POOL; n++) {
       const fruit = buildFruitMesh(t0.fruitMat, t0.N, this.MAX_N);
       fruit.visible = false;
-      const branch = new THREE.LineSegments(t0.branchGeo, t0.branchMat);
+      const branch = new LineSegments2(t0.branchGeo, t0.branchMat);
       branch.frustumCulled = false;
       branch.visible = false;
       scene.add(fruit);
@@ -96,8 +99,8 @@ export class PoolManager {
   mount(i, j, slot) {
     const c = cellHash(i, j, this.templates.length);
     const tmpl = this.templates[c.t];
-    const x = i * this.S + c.jx * this.jitter;
-    const z = j * this.S + c.jz * this.jitter;
+    const x = i * this.S + c.jx * this.jitter * this.S;
+    const z = j * this.S + c.jz * this.jitter * this.S;
 
     slot.fruit.material = tmpl.fruitMat;   // 共有マテリアル(clone しない)
     slot.fruit.count = tmpl.N;             // 描画本数だけ切替(再確保なし)
@@ -147,6 +150,25 @@ export class PoolManager {
         this.mount(i, j, slot);
       }
     }
+  }
+
+  // spacing / jitter を変えた後に呼ぶ: 全セルを一旦外し、次の update で全再配置。
+  relayout(target) {
+    for (const slot of [...this.mounted.values()]) this.unmount(slot);
+    this.ci = null;
+    this.cj = null;
+    if (target) this.update(target);
+  }
+
+  // radius を変える時に使う: 全スロットの mesh を scene から外す(この後 new で作り直す)。
+  dispose() {
+    for (const s of this.slots) {
+      this.scene.remove(s.fruit);
+      this.scene.remove(s.branch);
+    }
+    this.slots.length = 0;
+    this.free.length = 0;
+    this.mounted.clear();
   }
 
   // 起動時: 全テンプレのマテリアルを一度コンパイルさせる(初出現時のカクつき防止)。
