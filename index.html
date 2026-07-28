@@ -3,13 +3,14 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>寿命の樹 — The Weibull Tree (TSL)</title>
+<title>WEIBULL TREE — Reliability Study</title>
 <style>
   :root{--ink:#93A3AE;--dim:#56636E;--gold:#E8C15A}
   *{margin:0;padding:0;box-sizing:border-box}
   html,body{height:100%;background:#05080F;overflow:hidden;
     font-family:"Zen Kaku Gothic New","Hiragino Kaku Gothic ProN","Yu Gothic",sans-serif}
-  #stage{position:fixed;inset:0}
+  #stage{position:fixed;left:0;top:0;bottom:0;width:100%;transition:width .55s cubic-bezier(.22,.8,.25,1)}
+  body.analysis-mode #stage{width:55vw}
   #stage canvas{display:block}
   .serif{font-family:"Shippori Mincho","Hiragino Mincho ProN","Yu Mincho",serif}
   header{position:fixed;top:26px;left:30px;color:var(--ink);pointer-events:none;z-index:5}
@@ -23,11 +24,14 @@
   /* ===== 下部: コンパクトな再生ドック(中央・自動フェード) ===== */
   .dock{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);z-index:6;
     width:min(560px,calc(100vw - 60px));display:flex;align-items:center;gap:10px;
-    padding:8px 14px;opacity:.9;transition:opacity .7s ease, transform .7s ease}
+    padding:8px 14px;opacity:.9;transition:opacity .7s ease,transform .7s ease,
+    left .55s cubic-bezier(.22,.8,.25,1),width .55s cubic-bezier(.22,.8,.25,1)}
   .dock.idle{opacity:0;transform:translateX(-50%) translateY(14px);pointer-events:none}
   .dock:hover{opacity:1}
   .dock .ic{flex:none;width:30px;height:30px;padding:0;display:flex;align-items:center;
     justify-content:center;font-size:12px;border-radius:8px}
+  .dock .mode{flex:none;padding:0 10px;height:30px;font-size:8px;letter-spacing:.18em}
+  body.analysis-mode .dock{left:27.5%;width:min(540px,calc(55vw - 40px))}
   .dock input[type=range]{flex:1;min-width:80px}
   .dock .info{flex:none;display:flex;align-items:baseline;gap:6px;font-size:11px;
     letter-spacing:.06em;color:var(--dim);white-space:nowrap;font-variant-numeric:tabular-nums}
@@ -46,11 +50,9 @@
   .side .head .lbl{font-size:10px;letter-spacing:.28em;text-transform:uppercase;color:var(--dim)}
   .side .title{font-size:9px;letter-spacing:.28em;text-transform:uppercase;color:var(--dim);
     margin:12px 0 4px;border-bottom:1px solid rgba(147,163,174,.10);padding-bottom:5px}
-
-  /* パネルを開くハンドル(隠れている間だけ) */
-  .handle{position:fixed;right:24px;top:26px;z-index:7;padding:7px 12px;font-size:11px;
-    letter-spacing:.10em;display:none}
-  .handle.show{display:block}
+  body.analysis-mode .side{right:18px;top:54vh;bottom:18px;width:calc(45vw - 36px);
+    border-radius:4px;background:rgba(7,11,18,.66);backdrop-filter:blur(16px) saturate(1.15);
+    border-color:rgba(114,217,208,.18);box-shadow:0 18px 50px rgba(0,0,0,.24)}
 
   input[type=range]{width:100%;appearance:none;-webkit-appearance:none;height:2px;border-radius:2px;
     background:rgba(147,163,174,.25);outline:none}
@@ -86,33 +88,85 @@
   .adv{display:none}
   .adv.open{display:block}
 
+  /* ===== 右半分: ワイブル分析モード ===== */
+  .weibull-chart{position:fixed;right:0;top:0;bottom:0;z-index:5;width:45vw;
+    padding:22px 22px 0;background:rgba(5,9,16,.76);border-left:1px solid rgba(114,217,208,.18);
+    backdrop-filter:blur(18px) saturate(1.12);
+    opacity:0;transform:translateX(100%);pointer-events:none;overflow:hidden;
+    transition:opacity .45s ease,transform .55s cubic-bezier(.22,.8,.25,1)}
+  .weibull-chart::before{content:"";position:absolute;inset:0;pointer-events:none;opacity:.32;
+    background-image:linear-gradient(rgba(114,217,208,.045) 1px,transparent 1px),
+      linear-gradient(90deg,rgba(114,217,208,.045) 1px,transparent 1px);
+    background-size:32px 32px}
+  .weibull-chart.open{opacity:1;transform:none;pointer-events:auto}
+  .weibull-chart>*{position:relative}
+  .weibull-chart .chart-head{display:flex;align-items:center;height:26px;border-bottom:1px solid rgba(147,163,174,.12)}
+  .weibull-chart .chart-title{font-size:9px;letter-spacing:.34em;text-transform:uppercase;color:#72D9D0}
+  .weibull-chart .chart-now{font-size:9px;letter-spacing:.12em;color:var(--gold);
+    margin-left:auto;margin-right:30px;font-variant-numeric:tabular-nums}
+  .weibull-chart .x{position:absolute;right:-4px;top:-4px;font-size:14px}
+  .formula-row{display:flex;align-items:baseline;gap:14px;padding:13px 0 9px}
+  .formula{font-family:"Times New Roman",serif;font-size:18px;color:#D6E4E2;letter-spacing:.02em}
+  .formula-note{font-size:8px;letter-spacing:.18em;text-transform:uppercase;color:var(--dim)}
+  .analysis-controls{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-bottom:8px}
+  .analysis-control{display:grid;grid-template-columns:52px 1fr 38px;align-items:center;gap:8px;
+    font-size:9px;color:var(--dim)}
+  .analysis-control b{font-weight:400;color:#D6E4E2;text-align:right;font-variant-numeric:tabular-nums}
+  .metric-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin:8px 0 4px}
+  .metric{padding:8px 9px;border:1px solid rgba(147,163,174,.14);background:rgba(8,14,22,.34);
+    backdrop-filter:blur(8px)}
+  .metric span{display:block;font-size:7px;letter-spacing:.16em;text-transform:uppercase;color:var(--dim)}
+  .metric b{display:block;margin-top:4px;font-size:15px;font-weight:400;color:#D9E7E5;
+    font-variant-numeric:tabular-nums}
+  .metric.actual b{color:var(--gold)}
+  .chart-legend{display:flex;gap:16px;height:16px;align-items:center;font-size:8px;
+    letter-spacing:.12em;color:var(--dim)}
+  .chart-legend i{display:inline-block;width:14px;height:1px;margin-right:5px;vertical-align:middle}
+  .chart-legend .s{background:#72D9D0}.chart-legend .f{background:#E8C15A}
+  .chart-legend .h{background:#B586E8}
+  .weibull-chart canvas{display:block;width:100%;height:190px}
+
+  /* 別作品へのナビ(左下) */
+  .navlink{position:fixed;left:30px;bottom:24px;z-index:6;padding:7px 13px;font-size:11px;
+    letter-spacing:.10em;color:var(--ink);text-decoration:none}
+  .navlink:hover{border-color:var(--gold);color:var(--gold)}
+
   @media (max-width:720px){
     header h1{font-size:19px}
     .side{top:auto;bottom:78px;right:12px;left:12px;width:auto;max-height:46vh}
     .dock{width:calc(100vw - 24px)}
+    body.analysis-mode #stage{width:100%}
+    body.analysis-mode .dock{left:50%;width:calc(100vw - 24px)}
+    body.analysis-mode .side{top:56vh;right:10px;left:10px;bottom:10px;width:auto;max-height:none}
+    .weibull-chart{width:100vw;padding:14px 12px 0}
+    .weibull-chart canvas{height:170px}
+    .metric-grid{grid-template-columns:repeat(2,1fr)}
   }
 </style>
 </head>
 <body>
 <div id="stage"></div>
 <header>
-  <div class="eyebrow">The Weibull Tree · TSL</div>
-  <h1 class="serif">寿命の樹</h1>
+  <div class="eyebrow">WEIBULL</div>
+  <h1 class="serif">寿命分布モデル</h1>
   <!-- <div class="sub">果実のひとつが、ひとつの設備。<br>熟した色は、残された時間。</div> -->
 </header>
 
-<!-- 右パネルを開くハンドル(隠れている間) -->
-<button class="handle glass" id="handle">操作 ‹</button>
+<!-- 別作品「設備の森」へ -->
+<a class="navlink glass" href="/garden.html">森へ ›</a>
 
 <!-- 右: 操作盤 -->
-<aside class="side glass" id="side">
+<aside class="side glass collapsed" id="side">
   <div class="head">
-    <span class="lbl">操作盤</span>
+    <span class="lbl">Parameters</span>
     <button class="x" id="closeSide" title="隠す">›</button>
   </div>
 
   <div class="title">表示</div>
-  <div class="field"><span>灯の大きさ</span><input type="range" id="szIn" min="0.4" max="2.6" step="0.05" value="0.4"><span class="val" id="szv">0.40</span></div>
+  <div class="field"><span>灯の大きさ</span><input type="range" id="szIn" min="0.4" max="2.6" step="0.05" value="0.5"><span class="val" id="szv">0.50</span></div>
+  <div class="field"><span>枝の太さ</span><input type="range" id="branchWidthIn" min="1" max="5" step="0.1" value="1.8"><span class="val" id="branchWidthv">1.8</span></div>
+  <div class="field"><span>足元の光</span><input type="range" id="groundGlowIn" min="0" max="2" step="0.05" value="2"><span class="val" id="groundGlowv">2.00</span></div>
+  <div class="field"><span>光の広がり</span><input type="range" id="groundSpreadIn" min="3" max="14" step="0.1" value="7.5"><span class="val" id="groundSpreadv">7.5</span></div>
   <div class="field"><span>回転速度</span><input type="range" id="rotSpeedIn" min="0" max="0.6" step="0.005" value="0.05"><span class="val" id="rotSpeedv">0.05</span></div>
   <div class="rowbtns"><button id="rot" class="on">⟳ 自動回転</button></div>
 
@@ -128,6 +182,8 @@
     <button class="pal" data-p="prism">極彩</button>
     <button class="pal" data-p="neon">ネオン</button>
     <button class="pal" data-p="galaxy">銀河</button>
+    <button class="pal" data-p="aurora">オーロラ</button>
+    <button class="pal" data-p="primary">原色</button>
   </div>
   <div class="title">和のパレット</div>
   <div class="rowbtns">
@@ -150,8 +206,8 @@
     <div class="field"><span>形状 k</span><input type="range" id="pK" min="0.6" max="6" step="0.05" value="3.0"><span class="val" id="pKv">3.00</span></div>
     <div class="field"><span>尺度 η年</span><input type="range" id="pEta" min="4" max="40" step="0.2" value="21.2"><span class="val" id="pEtav">21.2</span></div>
     <div class="title">Timing — 落下と霧散</div>
-    <div class="field"><span>落下(年)</span><input type="range" id="pFall" min="0.3" max="6" step="0.05" value="1.6"><span class="val" id="pFallv">1.60</span></div>
-    <div class="field"><span>霧散(年)</span><input type="range" id="pMist" min="0.5" max="8" step="0.05" value="2.2"><span class="val" id="pMistv">2.20</span></div>
+    <div class="field"><span>落下(年)</span><input type="range" id="pFall" min="0.3" max="6" step="0.05" value="2.7"><span class="val" id="pFallv">2.70</span></div>
+    <div class="field"><span>霧散(年)</span><input type="range" id="pMist" min="0.5" max="40" step="0.05" value="14.65"><span class="val" id="pMistv">14.65</span></div>
     <div class="field"><span>霧の色</span><input type="color" id="cMist" value="#B4E44E"></div>
     <div class="title">Palette — 落下の調和色</div>
     <div class="field"><span>色相の広がり</span><input type="range" id="pHue" min="0" max="2.5" step="0.02" value="1.6"><span class="val" id="pHuev">1.60</span></div>
@@ -161,10 +217,40 @@
   </div>
 </aside>
 
+<!-- 右半分: ワイブル分析モード -->
+<section class="weibull-chart" id="weibullChart" aria-hidden="true">
+  <div class="chart-head">
+    <span class="chart-title">Weibull Analysis / Live</span>
+    <span class="chart-now" id="chartNow"></span>
+    <button class="x" id="closeChart" title="木だけの表示へ戻す">×</button>
+  </div>
+  <div class="formula-row">
+    <span class="formula">F(t) = 1 − e<sup>−(t/η)<sup>k</sup></sup></span>
+    <span class="formula-note">cumulative failure distribution</span>
+  </div>
+  <div class="analysis-controls">
+    <label class="analysis-control"><span>形状 k</span><input type="range" id="aK" min="0.6" max="6" step="0.05" value="3.0"><b id="aKv">3.00</b></label>
+    <label class="analysis-control"><span>尺度 η</span><input type="range" id="aEta" min="4" max="40" step="0.2" value="21.2"><b id="aEtav">21.2</b></label>
+  </div>
+  <div class="metric-grid">
+    <div class="metric"><span>生存率 S(t)</span><b id="mSurvival">100.0%</b></div>
+    <div class="metric"><span>累積故障 F(t)</span><b id="mFailure">0.0%</b></div>
+    <div class="metric"><span>ハザード h(t)</span><b id="mHazard">0.000</b></div>
+    <div class="metric actual"><span>実測点灯率</span><b id="mActual">100.0%</b></div>
+  </div>
+  <div class="chart-legend">
+    <span><i class="s"></i>S(t) 生存</span>
+    <span><i class="f"></i>F(t) 累積故障</span>
+    <span><i class="h"></i>h(t) ハザード</span>
+  </div>
+  <canvas id="chartCanvas" aria-label="ワイブル生存率・累積故障率・ハザード関数のグラフ"></canvas>
+</section>
+
 <!-- 下: コンパクト再生ドック -->
 <div class="dock glass" id="dock">
   <button id="play" class="ic" title="再生 / 一時停止 (Space)">▶</button>
   <button id="replay" class="ic" title="はじめから">↺</button>
+  <button id="chartBtn" class="mode" title="サイドパネルを切り替え">PANEL</button>
   <input type="range" id="yrIn" min="0" max="40" step="0.05" value="0" aria-label="経過年数">
   <div class="info">
     <span class="yr" id="yrOut">0.0</span><span class="u">年</span>

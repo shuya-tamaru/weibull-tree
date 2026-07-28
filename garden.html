@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>設備の森 — The Grove (TSL)</title>
+<style>
+  :root{--ink:#93A3AE;--dim:#56636E;--gold:#E8C15A}
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{height:100%;background:#05080F;overflow:hidden;
+    font-family:"Zen Kaku Gothic New","Hiragino Kaku Gothic ProN","Yu Gothic",sans-serif}
+  #stage{position:fixed;inset:0;cursor:grab}
+  #stage.dragging{cursor:grabbing}
+  #stage canvas{display:block}
+  .serif{font-family:"Shippori Mincho","Hiragino Mincho ProN","Yu Mincho",serif}
+
+  header{position:fixed;top:26px;left:30px;color:var(--ink);pointer-events:none;z-index:5}
+  header .eyebrow{font-size:10px;letter-spacing:.42em;color:var(--dim);text-transform:uppercase}
+  header h1{font-size:24px;font-weight:500;letter-spacing:.32em;color:#C9D6D2;margin-top:9px}
+  header .sub{font-size:11px;letter-spacing:.12em;color:var(--dim);margin-top:9px;line-height:1.9}
+
+  .glass{background:rgba(8,13,24,.58);border:1px solid rgba(147,163,174,.13);
+    border-radius:14px;backdrop-filter:blur(10px);color:var(--ink)}
+
+  /* 作品間ナビ(右上) */
+  .nav{position:fixed;top:26px;right:24px;z-index:6;padding:7px 13px;font-size:11px;
+    letter-spacing:.10em;color:var(--ink);text-decoration:none;display:inline-block}
+  .nav:hover{border-color:var(--gold);color:var(--gold)}
+
+  /* 操作ヒント(左下・自動フェード) */
+  .hint{position:fixed;left:30px;bottom:24px;z-index:5;font-size:11px;letter-spacing:.14em;
+    color:var(--dim);pointer-events:none;transition:opacity 1s ease}
+  .hint.gone{opacity:0}
+
+  /* 下部: コンパクトな再生ドック(中央・自動フェード) */
+  .dock{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);z-index:6;
+    width:min(480px,calc(100vw - 60px));display:flex;align-items:center;gap:10px;
+    padding:8px 14px;opacity:.9;transition:opacity .7s ease, transform .7s ease}
+  .dock.idle{opacity:0;transform:translateX(-50%) translateY(14px);pointer-events:none}
+  .dock:hover{opacity:1}
+  .dock .ic{flex:none;width:30px;height:30px;padding:0;display:flex;align-items:center;
+    justify-content:center;font-size:12px;border-radius:8px}
+  .dock input[type=range]{flex:1;min-width:80px}
+  .dock .info{flex:none;display:flex;align-items:baseline;gap:5px;font-size:11px;
+    letter-spacing:.06em;color:var(--dim);white-space:nowrap;font-variant-numeric:tabular-nums}
+  .dock .info .yr{color:#E9EDE9;font-size:15px}
+  .dock .info .u{color:var(--dim);font-size:10px}
+
+  input[type=range]{width:100%;appearance:none;-webkit-appearance:none;height:2px;border-radius:2px;
+    background:rgba(147,163,174,.25);outline:none}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:14px;height:14px;border-radius:50%;
+    background:#E9EDE9;cursor:pointer;box-shadow:0 0 10px rgba(233,237,233,.45)}
+  input[type=range]:focus-visible::-webkit-slider-thumb{box-shadow:0 0 0 3px rgba(232,193,90,.55)}
+
+  button{background:transparent;border:1px solid rgba(147,163,174,.25);color:var(--ink);
+    border-radius:7px;padding:5px 12px;font-size:11px;letter-spacing:.06em;cursor:pointer;font-family:inherit}
+  button:hover{border-color:var(--gold);color:var(--gold)}
+  button:focus-visible{outline:2px solid var(--gold);outline-offset:2px}
+
+  @media (max-width:720px){
+    header h1{font-size:19px}
+    .dock{width:calc(100vw - 24px)}
+  }
+</style>
+</head>
+<body>
+<div id="stage"></div>
+<header>
+  <div class="eyebrow">The Grove · Field of Weibull Trees</div>
+  <h1 class="serif">設備の森</h1>
+  <div class="sub">一本の樹が、ひとつの設備。<br>灯の散り際が、劣化の兆し。</div>
+</header>
+
+<!-- 作品間ナビ -->
+<a class="nav glass" href="/">‹ 樹へ</a>
+
+<!-- 操作ヒント -->
+<div class="hint" id="hint">ドラッグで見回す ・ ホイールでズーム</div>
+
+<!-- 下: コンパクト再生ドック -->
+<div class="dock glass" id="dock">
+  <button id="play" class="ic" title="再生 / 一時停止 (Space)">❚❚</button>
+  <button id="replay" class="ic" title="はじめから">↺</button>
+  <input type="range" id="yrIn" min="0" max="40" step="0.05" value="0" aria-label="経過年数">
+  <div class="info">
+    <span class="yr" id="yrOut">0.0</span><span class="u">年</span>
+  </div>
+</div>
+
+<script type="module" src="/src/garden.js"></script>
+</body>
+</html>
